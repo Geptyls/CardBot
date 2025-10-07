@@ -3,23 +3,24 @@ import sqlite3
 import time
 import threading
 import queue
+import asyncio
 import google.generativeai as genai
 import requests
 from bs4 import BeautifulSoup
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-# === НАСТРОЙКИ — ЗАМЕНИ ЭТИ ЗНАЧЕНИЯ ===
-BOT_TOKEN = "8304828272:AAER7l8wyoZA-8jlhaYfyxteId5Kt2lGa-A"  # ← ОБЯЗАТЕЛЬНО В КАВЫЧКАХ!
-GEMINI_API_KEY = "AIzaSyBxYoaTIukZqxAMZaTISJKjoPRpdzW9e4U"    # ← ОБЯЗАТЕЛЬНО В КАВЫЧКАХ!
-YOUR_TELEGRAM_ID = 647688105  # ← ТВОЙ ID БЕЗ КАВЫЧЕК! (узнай у @userinfobot)
+# === НАСТРОЙКИ — ОБЯЗАТЕЛЬНО ЗАМЕНИ ===
+BOT_TOKEN = "8304828272:AAER7l8wyoZA-8jlhaYfyxteId5Kt2lGa-A"  # ← из @BotFather
+GEMINI_API_KEY = "AIzaSyBxYoaTIukZqxAMZaTISJKjoPRpdzW9e4U"  # ← из Google AI Studio
+YOUR_TELEGRAM_ID = 647688105  # ← твой ID (узнай у @userinfobot)
 
 # Инициализация ИИ
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-pro')
 
-# === БАЗА ДАННЫХ ===
-def get_db_connection():
+# === БАЗА ===
+def get_db():
     conn = sqlite3.connect('bot.db', check_same_thread=False)
     conn.execute('''
         CREATE TABLE IF NOT EXISTS users (
@@ -31,15 +32,16 @@ def get_db_connection():
     conn.commit()
     return conn
 
-# === ОЧЕРЕДЬ ДЛЯ ИИ ===
+# === ОЧЕРЕДЬ ИИ ===
 task_queue = queue.Queue()
 
-def ai_worker():
+def ai_worker(loop):
+    """Фоновый поток для ИИ"""
     while True:
         task = task_queue.get()
         if task is None:
             break
-        user_id, prompt, send_func = task
+        user_id, prompt, is_premium = task
         try:
             response = model.generate_content(
                 f"Ты — эксперт по Wildberries. Проанализируй карточку и дай ПРАКТИЧНЫЙ совет селлеру.\n\n{prompt}\n\nОтвет дай в 1–2 предложения. Без воды. На русском.",
@@ -49,12 +51,30 @@ def ai_worker():
                 ]
             )
             result = response.text.strip()
-        except:
+        except Exception as e:
             result = "✅ Карточка в хорошей форме! (ИИ временно недоступен)"
-        send_func(user_id, result)
+
+        # Безопасная отправка в Telegram из другого потока
+        asyncio.run_coroutine_threadsafe(
+            send_analysis_result(user_id, result, is_premium),
+            loop
+        )
         task_queue.task_done()
 
-threading.Thread(target=ai_worker, daemon=True).start()
+# === ОТПРАВКА РЕЗУЛЬТАТА ===
+async def send_analysis_result(user_id, result, is_premium):
+    db = get_db()
+    cur = db.cursor()
+    if not is_premium:
+        cur.execute("INSERT OR IGNORE INTO users (user_id, free_analyses) VALUES (?, 3)", (user_id,))
+        cur.execute("UPDATE users SET free_analyses = free_analyses - 1 WHERE user_id = ?", (user_id,))
+        db.commit()
+        cur.execute("SELECT free_analyses FROM users WHERE user_id = ?", (user_id,))
+        new_free = cur.fetchone()[0]
+        footer = f"\n\nℹ️ Осталось бесплатных: {new_free}" if new_free > 0 else "\n\n💡 Хотите безлимит? Напишите в поддержку!"
+    else:
+        footer = ""
+    await bot.send_message(user_id, f"🧠 <b>ИИ-анализ:</b>\n{result}{footer}", parse_mode="HTML")
 
 # === ПАРСЕР WB ===
 def parse_wb_card(url):
@@ -71,22 +91,22 @@ def parse_wb_card(url):
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(bot)
 
-def main_keyboard():
+def main_kb():
     kb = ReplyKeyboardMarkup(resize_keyboard=True)
     kb.add(KeyboardButton("🔍 Анализ карточки"))
     kb.add(KeyboardButton("ℹ️ FAQ"), KeyboardButton("💬 Поддержка"))
     return kb
 
 @dp.message_handler(commands=['start'])
-async def send_welcome(message: types.Message):
+async def start_cmd(message: types.Message):
     await message.answer(
         "👋 Привет! Я — CardDoctor.\n\n"
         "Пришлите ссылку на карточку Wildberries — проанализирую с помощью ИИ.",
-        reply_markup=main_keyboard()
+        reply_markup=main_kb()
     )
 
-@dp.message_handler(lambda msg: msg.text == "ℹ️ FAQ")
-async def faq(message: types.Message):
+@dp.message_handler(lambda m: m.text == "ℹ️ FAQ")
+async def faq_cmd(message: types.Message):
     await message.answer(
         "📘 <b>FAQ:</b>\n\n"
         "1. <b>Как пользоваться?</b>\n   → Нажмите «Анализ карточки» → пришлите ссылку на Wildberries.\n\n"
@@ -95,8 +115,8 @@ async def faq(message: types.Message):
         parse_mode="HTML"
     )
 
-@dp.message_handler(lambda msg: msg.text == "💬 Поддержка")
-async def support(message: types.Message):
+@dp.message_handler(lambda m: m.text == "💬 Поддержка")
+async def support_cmd(message: types.Message):
     await message.answer(
         "📩 Напишите мне напрямую:",
         reply_markup=types.InlineKeyboardMarkup().add(
@@ -104,10 +124,10 @@ async def support(message: types.Message):
         )
     )
 
-@dp.message_handler(lambda msg: msg.text == "🔍 Анализ карточки")
+@dp.message_handler(lambda m: m.text == "🔍 Анализ карточки")
 async def ask_link(message: types.Message):
-    conn = get_db_connection()
-    cur = conn.cursor()
+    db = get_db()
+    cur = db.cursor()
     cur.execute("SELECT free_analyses, is_premium FROM users WHERE user_id = ?", (message.from_user.id,))
     row = cur.fetchone()
     free = row[0] if row else 3
@@ -123,11 +143,11 @@ async def ask_link(message: types.Message):
         return
     await message.answer("Пришлите ссылку на карточку Wildberries:")
 
-@dp.message_handler(lambda msg: "wildberries.ru" in msg.text)
-async def handle_analysis(message: types.Message):
+@dp.message_handler(lambda m: "wildberries.ru" in m.text)
+async def analyze_card(message: types.Message):
     user_id = message.from_user.id
-    conn = get_db_connection()
-    cur = conn.cursor()
+    db = get_db()
+    cur = db.cursor()
     cur.execute("SELECT free_analyses, is_premium FROM users WHERE user_id = ?", (user_id,))
     row = cur.fetchone()
     free = row[0] if row else 3
@@ -148,22 +168,8 @@ async def handle_analysis(message: types.Message):
             f"Цена: {data['price']} ₽"
         )
 
-        async def send_result(uid, result):
-            if not is_premium:
-                cur.execute("INSERT OR IGNORE INTO users (user_id, free_analyses) VALUES (?, 3)", (uid,))
-                cur.execute("UPDATE users SET free_analyses = free_analyses - 1 WHERE user_id = ?", (uid,))
-                conn.commit()
-                cur.execute("SELECT free_analyses FROM users WHERE user_id = ?", (uid,))
-                new_free = cur.fetchone()[0]
-                footer = f"\n\nℹ️ Осталось бесплатных: {new_free}" if new_free > 0 else "\n\n💡 Хотите безлимит? Напишите в поддержку!"
-            else:
-                footer = ""
-            await bot.send_message(uid, f"🧠 <b>ИИ-анализ:</b>\n{result}{footer}", parse_mode="HTML")
-
-        # Отправка задачи в очередь
-        def send_sync(uid, result):
-            dp.loop.create_task(send_result(uid, result))
-        task_queue.put((user_id, prompt, send_sync))
+        # Добавляем задачу в очередь
+        task_queue.put((user_id, prompt, is_premium))
 
     except Exception as e:
         await message.answer("Ошибка. Проверьте ссылку.")
@@ -174,15 +180,19 @@ async def give_premium(message: types.Message):
     if message.from_user.id == YOUR_TELEGRAM_ID:
         try:
             target_id = int(message.get_args())
-            conn = get_db_connection()
-            cur = conn.cursor()
+            db = get_db()
+            cur = db.cursor()
             cur.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (target_id,))
             cur.execute("UPDATE users SET is_premium = 1 WHERE user_id = ?", (target_id,))
-            conn.commit()
+            db.commit()
             await message.answer(f"✅ Премиум выдан {target_id}")
         except:
             await message.answer("UsageId: /premium USER_ID")
 
+# === ЗАПУСК ===
 if __name__ == '__main__':
-    print("✅ Бот запущен")
+    print("✅ Бот запускается...")
+    # Запускаем фоновый поток ИИ с передачей loop'а
+    loop = asyncio.get_event_loop()
+    threading.Thread(target=ai_worker, args=(loop,), daemon=True).start()
     executor.start_polling(dp, skip_updates=True)
