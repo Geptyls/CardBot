@@ -11,8 +11,8 @@ from aiogram import Bot, Dispatcher, executor, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
 # === НАСТРОЙКИ ===
-BOT_TOKEN = 8304828272:AAER7l8wyoZA-8jlhaYfyxteId5Kt2lGa-A  # ← из @BotFather
-GEMINI_API_KEY = AIzaSyBxYoaTIukZqxAMZaTISJKjoPRpdzW9e4U  # ← из Google AI Studio
+BOT_TOKEN = "8304828272:AAER7l8wyoZA-8jlhaYfyxteId5Kt2lGa-A"  # ← из @BotFather
+GEMINI_API_KEY = "AIzaSyBxYoaTIukZqxAMZaTISJKjoPRpdzW9e4U"  # ← из Google AI Studio
 YOUR_TELEGRAM_ID = 647688105  # ← твой ID (узнай у @userinfobot)
 
 # Инициализация ИИ
@@ -259,4 +259,5 @@ async def give_premium(message: types.Message):
             await message.answer("UsageId: /premium USER_ID")
 
 if __name__ == '__main__':
+
     executor.start_polling(dp, skip_updates=True)
