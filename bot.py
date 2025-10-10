@@ -9,7 +9,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
 # Модель на Hugging Face (русскую или мультиязычную можно заменить)
-MODEL_URL = "https://api-inference.huggingface.co/models/mistralai/Mixtral-8x7B-Instruct-v0.1"
+MODEL_URL = "https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct"
 HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"}
 
 # ======== ПАРСИНГ КАРТОЧКИ ТОВАРА ========
@@ -73,3 +73,4 @@ if __name__ == "__main__":
 
     print("✅ Бот запущен!")
     app.run_polling()
+
