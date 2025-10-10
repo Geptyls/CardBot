@@ -1,60 +1,65 @@
+# bot.py
 import os
 import requests
-from bs4 import BeautifulSoup
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from bs4 import BeautifulSoup
 
-# ======== НАСТРОЙКИ ========
+# Загружаем переменные окружения
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-HF_TOKEN = os.getenv("HF_TOKEN")
+YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")
+FOLDER_ID = os.getenv("FOLDER_ID")
 
-# Модель на Hugging Face (русскую или мультиязычную можно заменить)
-MODEL_URL = "https://api-inference.huggingface.co/models/bigscience/bloomz"
-HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"}
 
-# ======== ПАРСИНГ КАРТОЧКИ ТОВАРА ========
-def parse_wb_card(url):
+# -----------------------------
+# Функция анализа через ЯндексGPT
+# -----------------------------
+def analyze_with_yandex(text):
+    url = "https://llm.api.cloud.yandex.net/llm/v1/completions"
+    headers = {
+        "Authorization": f"Bearer {YANDEX_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "yandex/gpt-pro",
+        "folderId": FOLDER_ID,
+        "input": [
+            {"role": "user", "content": f"Анализируй карточку товара Wildberries и дай оценку:\n{text}"}
+        ],
+        "maxOutputTokens": 400,
+        "temperature": 0.5
+    }
     try:
-        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
-        soup = BeautifulSoup(response.text, "html.parser")
-
-        title = soup.find("h1")
-        title = title.text.strip() if title else "Название не найдено"
-
-        desc = soup.find("p", {"class": "product-description__text"})
-        desc = desc.text.strip() if desc else "Описание отсутствует"
-
-        rating = soup.find("span", {"class": "product-review__rating"})
-        rating = rating.text.strip() if rating else "Рейтинг не указан"
-
-        return f"Название: {title}\nОписание: {desc}\nРейтинг: {rating}"
-    except Exception as e:
-        return f"Ошибка при парсинге: {e}"
-
-# ======== АНАЛИЗ ЧЕРЕЗ ИИ ========
-def analyze_text(text):
-    prompt = f"Проанализируй карточку товара Wildberries:\n{text}\n\nДай оценку (0-10) и рекомендации по улучшению карточки."
-
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-    payload = {"inputs": prompt, "parameters": {"max_new_tokens": 250}}
-
-    try:
-        response = requests.post(MODEL_URL, headers=headers, json=payload, timeout=60)
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
         response.raise_for_status()
         data = response.json()
-
-        if isinstance(data, list) and "generated_text" in data[0]:
-            return data[0]["generated_text"]
-        elif isinstance(data, dict) and "generated_text" in data:
-            return data["generated_text"]
-        else:
-            return str(data)
+        return data["output"][0]["content"][0]["text"]
     except Exception as e:
-        return f"Ошибка Hugging Face API: {e}"
+        return f"Ошибка Yandex API: {e}"
 
-# ======== ОБРАБОТЧИКИ БОТА ========
+
+# -----------------------------
+# Функция парсинга карточки WB
+# -----------------------------
+def parse_wb_card(url):
+    try:
+        r = requests.get(url, timeout=10)
+        soup = BeautifulSoup(r.text, "html.parser")
+        title = soup.find("h1")
+        description = soup.find("div", {"class": "about__text"})
+        title_text = title.text.strip() if title else "Название не найдено"
+        desc_text = description.text.strip() if description else "Описание не найдено"
+        return f"{title_text}\n{desc_text}\nСсылка: {url}"
+    except Exception as e:
+        return f"Ошибка парсинга карточки: {e}"
+
+
+# -----------------------------
+# Хэндлеры бота
+# -----------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Привет! Отправь мне ссылку на товар Wildberries, и я выдам анализ и рекомендации.")
+    await update.message.reply_text("Привет! Отправь ссылку на карточку товара Wildberries, и я дам анализ.")
+
 
 async def analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
@@ -62,23 +67,22 @@ async def analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Отправь ссылку на товар Wildberries 🔗")
         return
 
-    await update.message.reply_text("⏳ Анализирую карточку, подожди пару секунд...")
+    await update.message.reply_text("⏳ Анализирую карточку...")
 
     parsed = parse_wb_card(url)
-    result = analyze_text(parsed)
+    result = analyze_with_yandex(parsed)
 
     await update.message.reply_text(f"📊 Анализ:\n{result}")
 
-# ======== ЗАПУСК ========
+
+# -----------------------------
+# Запуск бота
+# -----------------------------
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, analyze))
 
-    print("✅ Бот запущен!")
+    print("Бот запущен...")
     app.run_polling()
-
-
-
-
