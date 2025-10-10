@@ -9,7 +9,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
 # Модель на Hugging Face (русскую или мультиязычную можно заменить)
-MODEL_URL = "https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct"
+MODEL_URL = "https://api-inference.huggingface.co/models/facebook/blenderbot-400M-distill"
 HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"}
 
 # ======== ПАРСИНГ КАРТОЧКИ ТОВАРА ========
@@ -73,4 +73,5 @@ if __name__ == "__main__":
 
     print("✅ Бот запущен!")
     app.run_polling()
+
 
