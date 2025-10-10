@@ -1,30 +1,31 @@
 import os
+import openai
 import requests
+from bs4 import BeautifulSoup
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
-from bs4 import BeautifulSoup
+from dotenv import load_dotenv
 
-# Переменные окружения
+# Загружаем переменные окружения
+load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-HF_API_KEY = os.getenv("HF_API_KEY")
-MODEL_NAME = os.getenv("MODEL_NAME")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+openai.api_key = OPENAI_API_KEY
 
 # -----------------------------
-# Функция запроса к Hugging Face
+# Функция запроса к OpenAI GPT
 # -----------------------------
-def analyze_with_hf(text):
-    url = f"https://api-inference.huggingface.co/models/{MODEL_NAME}"
-    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
-    payload = {"inputs": f"Анализируй карточку товара Wildberries и дай рекомендации:\n{text}"}
+def analyze_with_openai(text):
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=60)
-        response.raise_for_status()
-        data = response.json()
-        if isinstance(data, list) and "generated_text" in data[0]:
-            return data[0]["generated_text"]
-        return str(data)
+        response = openai.Completion.create(
+            engine="text-davinci-003",
+            prompt=f"Анализируй карточку товара Wildberries и дай рекомендации:\n{text}",
+            max_tokens=400,
+            temperature=0.5
+        )
+        return response.choices[0].text.strip()
     except Exception as e:
-        return f"Ошибка HF API: {e}"
+        return f"Ошибка OpenAI API: {e}"
 
 # -----------------------------
 # Парсинг карточки WB
@@ -55,7 +56,7 @@ async def analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("⏳ Анализирую карточку...")
     parsed = parse_wb_card(url)
-    result = analyze_with_hf(parsed)
+    result = analyze_with_openai(parsed)
     await update.message.reply_text(f"📊 Анализ:\n{result}")
 
 # -----------------------------
