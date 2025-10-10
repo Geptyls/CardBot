@@ -1,45 +1,33 @@
-# bot.py
 import os
 import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from bs4 import BeautifulSoup
 
-# Загружаем переменные окружения
+# Переменные окружения
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")
-FOLDER_ID = os.getenv("FOLDER_ID")
-
+HF_API_KEY = os.getenv("HF_API_KEY")
+MODEL_NAME = os.getenv("MODEL_NAME")
 
 # -----------------------------
-# Функция анализа через ЯндексGPT
+# Функция запроса к Hugging Face
 # -----------------------------
-def analyze_with_yandex(text):
-    url = "https://llm.api.cloud.yandex.net/llm/v1/completions"
-    headers = {
-        "Authorization": f"Bearer {YANDEX_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": "yandex/gpt-pro",
-        "folderId": FOLDER_ID,
-        "input": [
-            {"role": "user", "content": f"Анализируй карточку товара Wildberries и дай оценку:\n{text}"}
-        ],
-        "maxOutputTokens": 400,
-        "temperature": 0.5
-    }
+def analyze_with_hf(text):
+    url = f"https://api-inference.huggingface.co/models/{MODEL_NAME}"
+    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+    payload = {"inputs": f"Анализируй карточку товара Wildberries и дай рекомендации:\n{text}"}
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=60)
         response.raise_for_status()
         data = response.json()
-        return data["output"][0]["content"][0]["text"]
+        if isinstance(data, list) and "generated_text" in data[0]:
+            return data[0]["generated_text"]
+        return str(data)
     except Exception as e:
-        return f"Ошибка Yandex API: {e}"
-
+        return f"Ошибка HF API: {e}"
 
 # -----------------------------
-# Функция парсинга карточки WB
+# Парсинг карточки WB
 # -----------------------------
 def parse_wb_card(url):
     try:
@@ -53,13 +41,11 @@ def parse_wb_card(url):
     except Exception as e:
         return f"Ошибка парсинга карточки: {e}"
 
-
 # -----------------------------
-# Хэндлеры бота
+# Хэндлеры Telegram
 # -----------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привет! Отправь ссылку на карточку товара Wildberries, и я дам анализ.")
-
+    await update.message.reply_text("Привет! Отправь ссылку на карточку Wildberries, и я дам анализ.")
 
 async def analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
@@ -68,21 +54,16 @@ async def analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await update.message.reply_text("⏳ Анализирую карточку...")
-
     parsed = parse_wb_card(url)
-    result = analyze_with_yandex(parsed)
-
+    result = analyze_with_hf(parsed)
     await update.message.reply_text(f"📊 Анализ:\n{result}")
-
 
 # -----------------------------
 # Запуск бота
 # -----------------------------
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, analyze))
-
     print("Бот запущен...")
     app.run_polling()
