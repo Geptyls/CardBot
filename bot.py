@@ -1,34 +1,39 @@
 import os
 import requests
-from bs4 import BeautifulSoup
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from dotenv import load_dotenv
-import openai
 
 # Загружаем переменные окружения
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-openai.api_key = OPENAI_API_KEY
+QWEN_API_KEY = os.getenv("QWEN_API_KEY")
+QWEN_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"
 
 # -----------------------------
-# Функция запроса к OpenAI Chat API
+# Функция запроса к Qwen
 # -----------------------------
-def analyze_with_openai(text):
+def analyze_with_qwen(text):
+    headers = {
+        "Authorization": f"Bearer {QWEN_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "model": "qwen-max-2025-01-25",
+        "messages": [
+            {"role": "system", "content": "Ты эксперт по анализу карточек товаров Wildberries."},
+            {"role": "user", "content": f"Анализируй карточку товара и дай рекомендации:\n{text}"}
+        ],
+        "temperature": 0.5,
+        "max_tokens": 400
+    }
     try:
-        response = openai.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "Ты эксперт по анализу карточек товаров Wildberries."},
-                {"role": "user", "content": f"Анализируй карточку товара и дай рекомендации:\n{text}"}
-            ],
-            temperature=0.5,
-            max_tokens=400
-        )
-        return response.choices[0].message.content.strip()
+        response = requests.post(QWEN_URL, headers=headers, json=data, timeout=20)
+        response.raise_for_status()
+        result = response.json()
+        return result["choices"][0]["message"]["content"]
     except Exception as e:
-        return f"Ошибка OpenAI API: {e}"
+        return f"Ошибка Qwen API: {e}"
 
 # -----------------------------
 # Парсинг карточки WB
@@ -36,6 +41,7 @@ def analyze_with_openai(text):
 def parse_wb_card(url):
     try:
         r = requests.get(url, timeout=10)
+        from bs4 import BeautifulSoup
         soup = BeautifulSoup(r.text, "html.parser")
         title = soup.find("h1")
         description = soup.find("div", {"class": "about__text"})
@@ -59,7 +65,7 @@ async def analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("⏳ Анализирую карточку...")
     parsed = parse_wb_card(url)
-    result = analyze_with_openai(parsed)
+    result = analyze_with_qwen(parsed)
     await update.message.reply_text(f"📊 Анализ:\n{result}")
 
 # -----------------------------
