@@ -9,7 +9,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
 # Модель на Hugging Face (русскую или мультиязычную можно заменить)
-MODEL_URL = "https://api-inference.huggingface.co/models/facebook/blenderbot-400M-distill"
+MODEL_URL = "https://api-inference.huggingface.co/models/bigscience/bloomz"
 HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"}
 
 # ======== ПАРСИНГ КАРТОЧКИ ТОВАРА ========
@@ -35,8 +35,6 @@ def parse_wb_card(url):
 def analyze_text(text):
     prompt = f"Проанализируй карточку товара Wildberries:\n{text}\n\nДай оценку (0-10) и рекомендации по улучшению карточки."
 
-    # Используем открытую модель BLOOMZ — стабильная, понимает русский
-    MODEL_URL = "https://api-inference.huggingface.co/models/bigscience/bloomz-560m"
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
     payload = {"inputs": prompt, "parameters": {"max_new_tokens": 250}}
 
@@ -45,13 +43,10 @@ def analyze_text(text):
         response.raise_for_status()
         data = response.json()
 
-        # Универсальная обработка (разные модели отдают разные форматы)
         if isinstance(data, list) and "generated_text" in data[0]:
             return data[0]["generated_text"]
         elif isinstance(data, dict) and "generated_text" in data:
             return data["generated_text"]
-        elif isinstance(data, list) and "summary_text" in data[0]:
-            return data[0]["summary_text"]
         else:
             return str(data)
     except Exception as e:
@@ -83,6 +78,7 @@ if __name__ == "__main__":
 
     print("✅ Бот запущен!")
     app.run_polling()
+
 
 
 
