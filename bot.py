@@ -1,10 +1,10 @@
 import os
-import openai
 import requests
 from bs4 import BeautifulSoup
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from dotenv import load_dotenv
+import openai
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -13,17 +13,20 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai.api_key = OPENAI_API_KEY
 
 # -----------------------------
-# Функция запроса к OpenAI GPT
+# Функция запроса к OpenAI Chat API
 # -----------------------------
 def analyze_with_openai(text):
     try:
-        response = openai.Completion.create(
-            engine="text-davinci-003",
-            prompt=f"Анализируй карточку товара Wildberries и дай рекомендации:\n{text}",
-            max_tokens=400,
-            temperature=0.5
+        response = openai.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "Ты эксперт по анализу карточек товаров Wildberries."},
+                {"role": "user", "content": f"Анализируй карточку товара и дай рекомендации:\n{text}"}
+            ],
+            temperature=0.5,
+            max_tokens=400
         )
-        return response.choices[0].text.strip()
+        return response.choices[0].message.content.strip()
     except Exception as e:
         return f"Ошибка OpenAI API: {e}"
 
