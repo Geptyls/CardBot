@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 QWEN_API_KEY = os.getenv("QWEN_API_KEY")
-QWEN_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"
+QWEN_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
 
 # -----------------------------
 # Функция запроса к Qwen
@@ -77,3 +77,4 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, analyze))
     print("Бот запущен...")
     app.run_polling()
+
