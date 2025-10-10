@@ -33,19 +33,29 @@ def parse_wb_card(url):
 
 # ======== АНАЛИЗ ЧЕРЕЗ ИИ ========
 def analyze_text(text):
-    prompt = f"Проанализируй карточку товара Wildberries и дай краткий анализ:\n{text}\n\nДай оценку (0-10) и рекомендации по улучшению карточки."
+    prompt = f"Проанализируй карточку товара Wildberries:\n{text}\n\nДай оценку (0-10) и рекомендации по улучшению карточки."
 
+    # Используем открытую модель BLOOMZ — стабильная, понимает русский
+    MODEL_URL = "https://api-inference.huggingface.co/models/bigscience/bloomz-560m"
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
     payload = {"inputs": prompt, "parameters": {"max_new_tokens": 250}}
-    response = requests.post(MODEL_URL, headers=HEADERS, json=payload)
 
-    if response.status_code == 200:
+    try:
+        response = requests.post(MODEL_URL, headers=headers, json=payload, timeout=60)
+        response.raise_for_status()
         data = response.json()
-        if isinstance(data, list) and len(data) > 0 and "generated_text" in data[0]:
+
+        # Универсальная обработка (разные модели отдают разные форматы)
+        if isinstance(data, list) and "generated_text" in data[0]:
             return data[0]["generated_text"]
+        elif isinstance(data, dict) and "generated_text" in data:
+            return data["generated_text"]
+        elif isinstance(data, list) and "summary_text" in data[0]:
+            return data[0]["summary_text"]
         else:
             return str(data)
-    else:
-        return f"Ошибка Hugging Face API: {response.status_code}, {response.text}"
+    except Exception as e:
+        return f"Ошибка Hugging Face API: {e}"
 
 # ======== ОБРАБОТЧИКИ БОТА ========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -73,5 +83,6 @@ if __name__ == "__main__":
 
     print("✅ Бот запущен!")
     app.run_polling()
+
 
 
